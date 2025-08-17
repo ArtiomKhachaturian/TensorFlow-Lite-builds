@@ -1,0 +1,257 @@
+diff --git a/tensorflow/lite/CMakeLists.txt b/tensorflow/lite/CMakeLists.txt
+index cf06e2a7..e866f433 100644
+--- a/tensorflow/lite/CMakeLists.txt
++++ b/tensorflow/lite/CMakeLists.txt
+@@ -200,6 +200,7 @@ if(TFLITE_ENABLE_XNNPACK)
+     set(PTHREADPOOL_BUILD_TESTS OFF CACHE BOOL "")
+     set(PTHREADPOOL_BUILD_BENCHMARKS OFF CACHE BOOL "")
+     set(PTHREADPOOL_ALLOW_DEPRECATED_API OFF CACHE BOOL "")
++    set(PTHREADPOOL_LIBRARY_TYPE "static" CACHE STRING "")
+     add_subdirectory(
+       "${PTHREADPOOL_SOURCE_DIR}"
+       "${CMAKE_BINARY_DIR}/pthreadpool")
+@@ -403,6 +404,35 @@ if(TFLITE_ENABLE_GPU)
+     ${TFLITE_SOURCE_DIR}/delegates/gpu/common
+     ${TFLITE_SOURCE_DIR}/delegates/gpu/common/task
+   )
++  if (TFLITE_ENABLE_GPU AND "${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
++    list(APPEND TFLITE_DELEGATES_GPU_SRCS
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/android_hardware_buffer.h
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/android_hardware_buffer.cc
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/async_buffers.h
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/async_buffers.cc
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/android_sync.h
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/android_sync.cc
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/egl_environment.h
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/egl_environment.cc
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/gl_errors.h
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/gl_errors.cc
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/request_gpu_info.h
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/request_gpu_info.cc
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/egl_context.h
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/egl_context.cc
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/egl_surface.h
++      ${TFLITE_SOURCE_DIR}/delegates/gpu/gl/egl_surface.cc
++      ${TFLITE_SOURCE_DIR}/delegates/utils/async_type_helpers.h
++      ${TFLITE_SOURCE_DIR}/delegates/utils/async_type_helpers.cc
++      ${TFLITE_SOURCE_DIR}/delegates/utils/sync_fence.h
++      ${TFLITE_SOURCE_DIR}/delegates/utils/sync_fence.cc
++      ${TFLITE_SOURCE_DIR}/delegates/utils/utils.h
++      ${TFLITE_SOURCE_DIR}/delegates/utils/utils.cc
++      ${TFLITE_SOURCE_DIR}/async/backend_async_kernel_interface.h
++      ${TFLITE_SOURCE_DIR}/async/backend_async_kernel_interface.cc
++    )
++  endif()
++
+   if(TFLITE_ENABLE_METAL AND "${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
+     #
+     # libmetal_delegate library
+@@ -718,6 +748,11 @@ else()
+   list(FILTER _ALL_TFLITE_SRCS EXCLUDE REGEX ".*mmap_allocation\\.cc$")
+ endif()
+ 
++if (CMAKE_SYSTEM_NAME MATCHES "Windows" AND BUILD_SHARED_LIBS)
++  set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
++  message(STATUS "Enable explicit export from TensorFlowLite DLL...")
++endif()
++
+ add_library(tensorflow-lite
+   ${_ALL_TFLITE_SRCS}
+ )
+@@ -735,6 +770,9 @@ target_link_libraries(tensorflow-lite
+     absl::strings
+     absl::synchronization
+     absl::variant
++    absl::log 
++    absl::log_internal_check_op 
++    absl::log_internal_message
+     farmhash
+     fft2d_fftsg2d
+     flatbuffers::flatbuffers
+@@ -755,6 +793,10 @@ target_compile_options(tensorflow-lite
+ )
+ add_library(${PROJECT_NAME}::tensorflowlite ALIAS tensorflow-lite)
+ 
++if (TFLITE_ENABLE_GPU AND "${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
++  target_link_libraries(tensorflow-lite PUBLIC GLESv2 EGL)
++endif()
++
+ # The install targets.
+ if(TFLITE_ENABLE_INSTALL)
+   install(
+@@ -805,16 +847,16 @@ endif()
+ set(TFLITE_GENERATED_HEADERS_DIR ${CMAKE_BINARY_DIR}/tensorflow/lite)
+ 
+ # Add the profiling proto directory.
+-add_subdirectory(${TFLITE_SOURCE_DIR}/profiling/proto)
++#add_subdirectory(${TFLITE_SOURCE_DIR}/profiling/proto)
+ 
+ # Add the tf example directory.
+-add_subdirectory(${TF_SOURCE_DIR}/core/example ${CMAKE_BINARY_DIR}/example_proto_generated)
++#add_subdirectory(${TF_SOURCE_DIR}/core/example ${CMAKE_BINARY_DIR}/example_proto_generated)
+ 
+ # The benchmark tool.
+-add_subdirectory(${TFLITE_SOURCE_DIR}/tools/benchmark)
++#add_subdirectory(${TFLITE_SOURCE_DIR}/tools/benchmark)
+ 
+ # The label_image example.
+-add_subdirectory(${TFLITE_SOURCE_DIR}/examples/label_image)
++#add_subdirectory(${TFLITE_SOURCE_DIR}/examples/label_image)
+ 
+ # Python interpreter wrapper.
+ add_library(_pywrap_tensorflow_interpreter_wrapper SHARED EXCLUDE_FROM_ALL
+diff --git a/tensorflow/lite/profiling/proto/CMakeLists.txt b/tensorflow/lite/profiling/proto/CMakeLists.txt
+index fdf34382..b9652f30 100644
+--- a/tensorflow/lite/profiling/proto/CMakeLists.txt
++++ b/tensorflow/lite/profiling/proto/CMakeLists.txt
+@@ -32,7 +32,7 @@ add_custom_command(
+ 
+ set_source_files_properties(${profiling_info_generated_files} PROPERTIES GENERATED TRUE)
+ target_sources(profiling_info_proto PRIVATE ${profiling_info_generated_files})
+-target_link_libraries(profiling_info_proto protobuf::libprotobuf)
++target_link_libraries(profiling_info_proto protobuf::libprotobuf protobuf::libprotobuf-lite protobuf::libprotoc)
+ target_include_directories(profiling_info_proto PUBLIC ${CMAKE_BINARY_DIR})
+ 
+ add_library(model_runtime_info_proto model_runtime_info.proto)
+@@ -52,6 +52,6 @@ add_custom_command(
+ )
+ 
+ set_source_files_properties(${model_runtime_info_generated_files} PROPERTIES GENERATED TRUE)
+-target_sources(model_runtime_info_proto PRIVATE ${model_runtime_info_generated_files})
+-target_link_libraries(model_runtime_info_proto protobuf::libprotobuf)
++target_sources(model_runtime_info_proto PRIVATE ${model_runtime_info_generated_files} ${profiling_info_generated_files})
++target_link_libraries(model_runtime_info_proto protobuf::libprotobuf protobuf::libprotobuf-lite protobuf::libprotoc)
+ target_include_directories(model_runtime_info_proto PUBLIC ${CMAKE_BINARY_DIR})
+diff --git a/tensorflow/lite/tools/cmake/modules/abseil-cpp.cmake b/tensorflow/lite/tools/cmake/modules/abseil-cpp.cmake
+index 28fbb628..9feab456 100644
+--- a/tensorflow/lite/tools/cmake/modules/abseil-cpp.cmake
++++ b/tensorflow/lite/tools/cmake/modules/abseil-cpp.cmake
+@@ -24,7 +24,7 @@ OverridableFetchContent_Declare(
+   abseil-cpp
+   GIT_REPOSITORY https://github.com/abseil/abseil-cpp
+   # Sync with tensorflow/third_party/absl/workspace.bzl
+-  GIT_TAG fb3621f4f897824c0dbe0615fa94543df6192f30
++  GIT_TAG d9e4955c65cd4367dd6bf46f4ccb8cd3d100540b
+   GIT_SHALLOW TRUE
+   GIT_PROGRESS TRUE
+   PREFIX "${CMAKE_BINARY_DIR}"
+@@ -33,6 +33,24 @@ OverridableFetchContent_Declare(
+ OverridableFetchContent_GetProperties(abseil-cpp)
+ if(NOT abseil-cpp_POPULATED)
+   OverridableFetchContent_Populate(abseil-cpp)
++  if (CMAKE_SYSTEM_NAME STREQUAL "Android")
++    message(STATUS "Skip abseil patching for Android")
++  elseif(EXISTS ${CMAKE_BINARY_DIR}/abseil_cmake.patch)
++    execute_process(
++      COMMAND git apply ${CMAKE_BINARY_DIR}/abseil_cmake.patch
++      WORKING_DIRECTORY "${abseil-cpp_SOURCE_DIR}"
++      RESULT_VARIABLE patch_result
++      OUTPUT_VARIABLE patch_output
++      ERROR_VARIABLE patch_error
++    )
++    if(NOT patch_result EQUAL 0)
++      message(FATAL_ERROR "Failed to apply patch:\n${patch_error}")
++    else()
++      message(STATUS "Patch applied successfully:\n${patch_output}")
++      # for prevention of secondary patching
++      file(REMOVE ${CMAKE_BINARY_DIR}/abseil_cmake.patch)
++    endif()
++  endif()
+ endif()
+ 
+ set(ABSL_USE_GOOGLETEST_HEAD OFF CACHE BOOL "Disable googletest")
+diff --git a/tensorflow/lite/tools/cmake/modules/cpuinfo.cmake b/tensorflow/lite/tools/cmake/modules/cpuinfo.cmake
+index e388c5f6..0502944e 100644
+--- a/tensorflow/lite/tools/cmake/modules/cpuinfo.cmake
++++ b/tensorflow/lite/tools/cmake/modules/cpuinfo.cmake
+@@ -37,6 +37,7 @@ set(CPUINFO_BUILD_TOOLS OFF CACHE BOOL "Disable cpuinfo command-line tools")
+ set(CPUINFO_BUILD_UNIT_TESTS OFF CACHE BOOL "Disable cpuinfo unit tests")
+ set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Disable cpuinfo cpuinfo mock tests")
+ set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Disable cpuinfo micro-benchmarks")
++set(CPUINFO_LIBRARY_TYPE "static" CACHE STRING "cpuinfo library type")
+ 
+ add_subdirectory(
+   "${cpuinfo_SOURCE_DIR}"
+diff --git a/tensorflow/lite/tools/cmake/modules/farmhash/CMakeLists.txt b/tensorflow/lite/tools/cmake/modules/farmhash/CMakeLists.txt
+index 661de2fe..ba769c23 100644
+--- a/tensorflow/lite/tools/cmake/modules/farmhash/CMakeLists.txt
++++ b/tensorflow/lite/tools/cmake/modules/farmhash/CMakeLists.txt
+@@ -29,7 +29,7 @@ check_cxx_source_compiles(
+   FARMHASH_HAS_BUILTIN_EXPECT
+ )
+ 
+-add_library(farmhash
++add_library(farmhash STATIC 
+   "${FARMHASH_SOURCE_DIR}/src/farmhash.cc"
+   "${FARMHASH_SOURCE_DIR}/src/farmhash.h"
+ )
+diff --git a/tensorflow/lite/tools/cmake/modules/fft2d/CMakeLists.txt b/tensorflow/lite/tools/cmake/modules/fft2d/CMakeLists.txt
+index 61724564..2d611b9c 100644
+--- a/tensorflow/lite/tools/cmake/modules/fft2d/CMakeLists.txt
++++ b/tensorflow/lite/tools/cmake/modules/fft2d/CMakeLists.txt
+@@ -27,17 +27,17 @@ endif()
+ 
+ # A developer should link this library if they haven't provided their own
+ # implementation of these allocation methods.
+-add_library(fft2d_alloc
++add_library(fft2d_alloc STATIC 
+   "${FFT2D_SOURCE_DIR}/alloc.c"
+   "${FFT2D_SOURCE_DIR}/alloc.h"
+ )
+ target_include_directories(fft2d_alloc PUBLIC "${FFT2D_SOURCE_DIR}")
+ 
+ # Requires implementation of fft2d_alloc.
+-add_library(fft2d_fft4f2d "${FFT2D_SOURCE_DIR}/fft4f2d.c")
++add_library(fft2d_fft4f2d STATIC "${FFT2D_SOURCE_DIR}/fft4f2d.c")
+ target_include_directories(fft2d_fft4f2d PRIVATE "${FFT2D_SOURCE_DIR}")
+ 
+-add_library(fft2d_fftsg "${FFT2D_SOURCE_DIR}/fftsg.c")
++add_library(fft2d_fftsg STATIC "${FFT2D_SOURCE_DIR}/fftsg.c")
+ if(NOT CMAKE_SYSTEM_NAME STREQUAL Windows)
+ target_link_libraries(fft2d_fftsg m)
+ endif()
+@@ -51,16 +51,16 @@ install(
+ )
+ 
+ # Requires implementation of fft2d_alloc.
+-add_library(fft2d_fftsg2d "${FFT2D_SOURCE_DIR}/fftsg2d.c")
++add_library(fft2d_fftsg2d STATIC "${FFT2D_SOURCE_DIR}/fftsg2d.c")
+ target_link_libraries(fft2d_fftsg2d fft2d_fftsg)
+ target_include_directories(fft2d_fftsg2d PRIVATE "${FFT2D_SOURCE_DIR}")
+ 
+ # Requires implementation of fft2d_alloc.
+-add_library(fft2d_fftsg3d "${FFT2D_SOURCE_DIR}/fftsg3d.c")
++add_library(fft2d_fftsg3d STATIC "${FFT2D_SOURCE_DIR}/fftsg3d.c")
+ target_link_libraries(fft2d_fftsg3d fft2d_fftsg)
+ target_include_directories(fft2d_fftsg3d PRIVATE "${FFT2D_SOURCE_DIR}")
+ 
+-add_library(fft2d_shrtdct "${FFT2D_SOURCE_DIR}/shrtdct.c")
++add_library(fft2d_shrtdct STATIC "${FFT2D_SOURCE_DIR}/shrtdct.c")
+ 
+ add_library(fft2d ALIAS fft2d_fftsg2d)
+ 
+diff --git a/tensorflow/lite/tools/cmake/modules/xnnpack.cmake b/tensorflow/lite/tools/cmake/modules/xnnpack.cmake
+index 2ebea323..2791c138 100644
+--- a/tensorflow/lite/tools/cmake/modules/xnnpack.cmake
++++ b/tensorflow/lite/tools/cmake/modules/xnnpack.cmake
+@@ -37,6 +37,7 @@ endif()
+ # dependencies by TFLite.
+ set(XNNPACK_BUILD_TESTS OFF CACHE BOOL "Disable XNNPACK test.")
+ set(XNNPACK_BUILD_BENCHMARKS OFF CACHE BOOL "Disable XNNPACK benchmarks.")
++set(XNNPACK_LIBRARY_TYPE "static" CACHE STRING "")
+ 
+ # The following line adds project of PTHREADPOOL, FP16 and XNNPACK which are
+ # needed to compile XNNPACK delegate of TFLite.
+diff --git a/third_party/absl/workspace.bzl b/third_party/absl/workspace.bzl
+index d5973b13..b3737e01 100644
+--- a/third_party/absl/workspace.bzl
++++ b/third_party/absl/workspace.bzl
+@@ -7,7 +7,7 @@ def repo():
+ 
+     # Attention: tools parse and update these lines.
+     # LINT.IfChange
+-    ABSL_COMMIT = "fb3621f4f897824c0dbe0615fa94543df6192f30"
++    ABSL_COMMIT = "d9e4955c65cd4367dd6bf46f4ccb8cd3d100540b"
+     ABSL_SHA256 = "0320586856674d16b0b7a4d4afb22151bdc798490bb7f295eddd8f6a62b46fea"
+     # LINT.ThenChange(//tensorflow/lite/tools/cmake/modules/abseil-cpp.cmake)
+ 
